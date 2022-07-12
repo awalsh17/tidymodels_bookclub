@@ -1,0 +1,228 @@
+---
+title: "03-linear-regression-classic"
+author: "Alice Walsh"
+date: '2022-06-27'
+output: html_document
+---
+
+```{r, echo=FALSE}
+set.seed(1243)
+```
+
+**This is a version modified for R-Ladies Philly July 2022 bookclub!**
+
+In this version, we demonstrate how to perform linear regression with a "classic"
+workflow without {tidymodels}.
+
+## Libraries
+
+We load the palmerpenguins and ISLR package for data. I also load dplyr because I like to
+and broom (loaded with tidymodels) to use functions like `tidy`.
+
+```{r, message=FALSE}
+library(dplyr)
+library(broom)
+# library(MASS) # For Boston data set
+library(ISLR) # has datasets
+library(palmerpenguins) # has penguins data
+```
+
+## Simple linear regression
+
+We will use the `penguins` data set from {palmerpenguins}.
+
+This dataset has 344 rows 8 variables.
+
+We can use `lm` to fit a model! `lm` is part of the {stats} base package and returns an object
+of class "lm"
+
+The formula is written on the form `y ~ x` where `y` is the name of the response and `x` is the name of the predictors.
+The names used in the formula should match the names of the variables in the data set passed to `data`.
+
+```{r}
+lm_obj <- lm(body_mass_g ~ flipper_length_mm, data = penguins)
+
+class(lm_obj)
+```
+
+The default print of "lm" is similar to what we get with tidmodels!
+
+```{r}
+lm_obj
+```
+
+The `lm` object has a nice `summary()` method that shows more information about the fit, including parameter estimates and lack-of-fit statistics.
+
+```{r}
+summary(lm_obj)
+```
+
+If you want to plot model residuals or other diagnostics?
+This is how you can use the default `lm` `fit` plot method.
+
+```{r}
+par(mfrow=c(2,2)) # plot all 4 plots in one
+
+plot(lm_obj, 
+     pch = 16,    # optional parameters to make points blue
+     col = '#006EA1')
+```
+
+However, a lot of us like {ggplot2} plots over base R plots because of ease of modification.
+
+The plot of residuals versus predicted values is useful for checking the assumption of linearity and homoscedasticity.
+
+The points on the upper right are really interesting. Something is going on with the data... it turns out that medv goes from 5 to 50. Because the data is bounded at 50, we see this effect. 
+
+```{r}
+library(ggplot2)
+theme_set(theme_minimal())
+fit_data <- data.frame(residuals = lm_obj$residuals,
+                       fitted_values = lm_obj$fitted.values)
+fit_data %>% ggplot(aes(y = residuals, x = fitted_values)) + 
+  geom_point() + geom_smooth(se = FALSE)
+```
+
+
+We can use functions from the [broom](https://broom.tidymodels.org/) package to extract key information out of the model objects in tidy formats.
+
+the `tidy()` function returns the parameter estimates of a `lm` object
+
+```{r}
+tidy(lm_obj)
+```
+
+and `glance()` can be used to extract the model statistics.
+
+```{r}
+glance(lm_obj)
+```
+
+Suppose that we like the model fit and we want to generate predictions, we would typically use the `predict()` function like so:
+
+```{r, error=TRUE}
+predict(lm_obj)
+```
+
+Unlike when we have a parsnip object with tidymodels, this works. However, this format is not so nice and we might want to pass new data and not have this default behavior!
+
+Notice how the predictions are NOT returned as a tibble. 
+
+We can also return other types of predicts by specifying the `type` argument. Setting `type = "conf_int"` return a 95% confidence interval. 
+
+see `?predict.lm` for more information.
+
+```{r}
+predict(lm_obj, newdata = penguins, se.fit = TRUE)
+```
+
+
+If you want to evaluate the performance of a model, you might want to compare the observed value and the predicted value for a data set. OH NO. This is harder without tidymodels. 
+
+We have some missing data so two results are not returned from predict because flipper_length_mm
+was missing.
+
+```{r}
+bind_cols(
+  predict(lm_obj, new_data = penguins),
+  penguins
+) 
+```
+
+Here is one thing you could do, but not great!
+
+```{r}
+data.frame(
+  body_mass_g = na.omit(penguins$body_mass_g),
+  .pred = predict(lm_obj, new_data = penguins)
+)
+```
+
+
+## Multiple linear regression
+
+The multiple linear regression model can be fit in much the same way as the [simple linear regression] model. The only difference is how we specify the predictors. We are using the same formula expression `y ~ x`, but we can specify multiple values by separating them with `+`s.
+
+```{r}
+lm_obj2 <- lm(body_mass_g ~ flipper_length_mm + year, data = penguins)
+
+lm_obj2
+```
+
+Everything else works the same. From extracting parameter estimates
+
+```{r}
+tidy(lm_obj2)
+```
+
+A shortcut when using formulas is to use the form `y ~ .` which means; set `y` as the response and set the remaining variables as predictors. This is very useful if you have a lot of variables and you don't want to type them out.
+
+```{r}
+lm_obj3 <- lm(body_mass_g ~ ., data = penguins)
+
+lm_obj3
+```
+
+For more formula syntax look at `?formula`.
+
+## Interaction terms
+
+Adding interaction terms are quite easy to do using formula expressions. However, the syntax used to describe them isn't accepted by all engines so we will go over how to include interaction terms using recipes as well.
+
+There are two ways on including an interaction term; `x:y` and `x * y`
+
+- `x:y` will include the interaction between `x` and `y`,
+- `x * y` will include the interaction between `x` and `y`, `x`, and `y`, e.i. it is short for `x:y + x + y`.
+
+with that out of the way let expand `lm_obj2` by adding an interaction term
+
+```{r}
+lm_obj4 <- lm(body_mass_g ~ flipper_length_mm * bill_depth_mm, data = penguins)
+
+lm_obj4
+```
+
+note that the interaction term is named `flipper_length_mm:bill_depth_mm`.
+
+Without the tidymodels {recipes} package, we don't have functions like `step_interact`.
+
+
+## Non-linear transformations of the predictors
+
+No {recipes} package.
+
+## Qualitative predictors
+
+We will now turn our attention to the `Carseats` data set. We will attempt to predict `Sales` of child car seats in 400 locations based on a number of predictors. One of these variables is `ShelveLoc` which is a qualitative predictor that indicates the quality of the shelving location. `ShelveLoc` takes on three possible values
+
+- Bad
+- Medium
+- Good
+
+If you pass such a variable to `lm()` it will read it and generate dummy variables automatically using the following convention.
+
+```{r}
+Carseats %>%
+  pull(ShelveLoc) %>%
+  contrasts()
+```
+
+So we have no problems including qualitative predictors when using `lm` as the engine.
+
+But what about creating dummy variables without the {recipes} package?
+I can do that with some dplyr, but it is annoying! I believe there are R packages to do this too.
+
+```{r}
+Carseats_modified <- Carseats %>% 
+  mutate(ShelveLoc_Medium = if_else(ShelveLoc == "Medium", 1, 0),
+         ShelveLoc_Good = if_else(ShelveLoc == "Good", 1, 0),
+         Urban_Yes = if_else(Urban == "Yes", 1, 0),
+         US_Yes = if_else(US == "Yes", 1, 0)) %>% 
+  select(-ShelveLoc, -Urban, -US)
+
+lm(Sales ~ ., data = Carseats_modified)
+```
+
+## Writing functions
+
+This book will not talk about how to write functions in R. If you still want to know how to write functions we recommend the [functions](https://r4ds.had.co.nz/functions.html) of R for Data Science.
